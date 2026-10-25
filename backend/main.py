@@ -182,6 +182,106 @@ val keyframeSpec = keyframes {{
 }}"""
 
 
+def generate_framer_motion_code(fit_type, metrics, duration_ms):
+    """Generate Framer Motion (React) code based on fit type"""
+    if fit_type == "spring":
+        damping_ratio = metrics.get("damping_ratio", 0.5)
+        stiffness = metrics.get("stiffness", 100.0)
+        omega = math.sqrt(stiffness)
+        damping = 2 * damping_ratio * omega
+        return f"""// Spring animation based on extracted physics
+<motion.div
+  animate={{
+    // Your animated properties
+  }}
+  transition={{
+    type: "spring",
+    stiffness: {stiffness:.1f},
+    damping: {damping:.1f},
+    mass: 1.0
+  }}
+/>"""
+    elif fit_type == "bezier":
+        handles = metrics.get("bezier_handles", [0.25, 0.1, 0.25, 1.0])
+        duration_sec = duration_ms / 1000.0
+        return f"""// Cubic Bézier easing based on extracted curve
+<motion.div
+  animate={{
+    // Your animated properties
+  }}
+  transition={{
+    duration: {duration_sec:.3f},
+    ease: [0.25, {handles[1]:.2f}, 0.25, {handles[3]:.2f}]
+  }}
+/>"""
+    else:
+        duration_sec = duration_ms / 1000.0
+        return f"""// Keyframe animation for complex motion
+<motion.div
+  animate={{
+    // Your animated properties
+  }}
+  transition={{
+    duration: {duration_sec:.3f},
+    times: [0, 1],
+    ease: "linear"
+  }}
+/>"""
+
+
+def generate_flutter_code(fit_type, metrics, duration_ms):
+    """Generate Flutter code based on fit type"""
+    if fit_type == "spring":
+        damping_ratio = metrics.get("damping_ratio", 0.5)
+        stiffness = metrics.get("stiffness", 100.0)
+        omega = math.sqrt(stiffness)
+        damping = 2 * damping_ratio * omega
+        return f"""// Spring animation based on extracted physics
+final springSimulation = SpringSimulation(
+  SpringDescription(
+    mass: 1.0,
+    stiffness: {stiffness:.1f},
+    damping: {damping:.1f}
+  ),
+  0.0,
+  1.0,
+  0.0,
+);
+
+AnimationController _controller = AnimationController(
+  vsync: this,
+  duration: const Duration(milliseconds: {duration_ms}),
+)..repeat(reverse: true);
+
+Animation<double> _animation = CurvedAnimation(
+  parent: _controller,
+  curve: springSimulation,
+);"""
+    elif fit_type == "bezier":
+        handles = metrics.get("bezier_handles", [0.25, 0.1, 0.25, 1.0])
+        return f"""// Cubic Bézier easing based on extracted curve
+AnimationController _controller = AnimationController(
+  vsync: this,
+  duration: const Duration(milliseconds: {duration_ms}),
+)..repeat(reverse: true);
+
+Animation<double> _animation = CurvedAnimation(
+  parent: _controller,
+  curve: const Cubic(0.25, {handles[1]:.2f}, 0.25, {handles[3]:.2f}),
+);"""
+    else:
+        return f"""// Keyframe animation for complex motion
+AnimationController _controller = AnimationController(
+  vsync: this,
+  duration: const Duration(milliseconds: {duration_ms}),
+)..repeat(reverse: true);
+
+Animation<double> _animation = CurvedAnimation(
+  parent: _controller,
+  curve: Curves.linear,
+);"""
+
+
 def process_translate_mode(video_path, roi, fps_override):
     """Process video in translate mode using CSRT tracker"""
     cap = cv2.VideoCapture(video_path)
@@ -286,6 +386,8 @@ def process_translate_mode(video_path, roi, fps_override):
     }
 
     compose_code = generate_compose_code(fit_type, metrics, duration_ms)
+    framer_code = generate_framer_motion_code(fit_type, metrics, duration_ms)
+    flutter_code = generate_flutter_code(fit_type, metrics, duration_ms)
 
     return {
         "status": "success",
@@ -294,7 +396,11 @@ def process_translate_mode(video_path, roi, fps_override):
         "fit_type": fit_type,
         "metrics": metrics,
         "raw_telemetry": telemetry,
-        "compose_code": compose_code,
+        "code": {
+            "compose": compose_code,
+            "framer": framer_code,
+            "flutter": flutter_code,
+        },
     }
 
 
@@ -439,6 +545,8 @@ def process_fill_progress_mode(video_path, roi, fps_override, orientation="auto"
     }
 
     compose_code = generate_compose_code(fit_type, metrics, duration_ms)
+    framer_code = generate_framer_motion_code(fit_type, metrics, duration_ms)
+    flutter_code = generate_flutter_code(fit_type, metrics, duration_ms)
 
     return {
         "status": "success",
@@ -447,7 +555,11 @@ def process_fill_progress_mode(video_path, roi, fps_override, orientation="auto"
         "fit_type": fit_type,
         "metrics": metrics,
         "raw_telemetry": telemetry,
-        "compose_code": compose_code,
+        "code": {
+            "compose": compose_code,
+            "framer": framer_code,
+            "flutter": flutter_code,
+        },
     }
 
 
@@ -790,9 +902,17 @@ async def vision_synthesize(
         if error:
             raise HTTPException(status_code=500, detail=error)
 
+        # Generate code for all targets
+        framer_code = generate_framer_motion_code("spring", {"damping_ratio": 0.5, "stiffness": 100.0}, duration_ms)
+        flutter_code = generate_flutter_code("spring", {"damping_ratio": 0.5, "stiffness": 100.0}, duration_ms)
+
         return {
             "status": "success",
-            "compose_code": compose_code,
+            "code": {
+                "compose": compose_code,
+                "framer": framer_code,
+                "flutter": flutter_code,
+            },
         }
     except Exception as e:
         print(f"Vision synthesis error: {e}")

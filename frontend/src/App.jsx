@@ -25,6 +25,7 @@ function App() {
   const [autoProposals, setAutoProposals] = useState([]);
   const [selectedProposal, setSelectedProposal] = useState(null);
   const [isSegmenting, setIsSegmenting] = useState(false);
+  const [codeTarget, setCodeTarget] = useState('compose');
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -801,31 +802,70 @@ function App() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                     </svg>
                   </div>
-                  Jetpack Compose Code
+                  Generated Code
                 </h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => copyToClipboard(result.code?.[codeTarget] || result.compose_code)}
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-xl text-sm font-medium transition-all duration-300 border border-gray-700 hover:border-gray-600"
+                  >
+                    {copied ? (
+                      <>
+                        <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Copied!
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        Copy to Clipboard
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Code Target Tabs */}
+              <div className="flex gap-2 mb-4">
                 <button
-                  onClick={() => copyToClipboard(result.compose_code)}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-xl text-sm font-medium transition-all duration-300 border border-gray-700 hover:border-gray-600"
+                  onClick={() => setCodeTarget('compose')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    codeTarget === 'compose'
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  }`}
                 >
-                  {copied ? (
-                    <>
-                      <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      Copied!
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                      Copy to Clipboard
-                    </>
-                  )}
+                  Jetpack Compose
+                </button>
+                <button
+                  onClick={() => setCodeTarget('framer')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    codeTarget === 'framer'
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  Framer Motion
+                </button>
+                <button
+                  onClick={() => setCodeTarget('flutter')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    codeTarget === 'flutter'
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  Flutter
                 </button>
               </div>
+
               <pre className="bg-gray-950 rounded-xl p-6 overflow-x-auto text-sm font-mono border border-gray-800">
-                <code className="text-gray-300">{result.compose_code}</code>
+                <code className="text-gray-300">
+                  {result.code?.[codeTarget] || result.compose_code}
+                </code>
               </pre>
             </div>
 
@@ -841,10 +881,10 @@ function App() {
                   AI-Generated Styled Compose
                 </h2>
                 <pre className="bg-gray-950 rounded-xl p-6 overflow-x-auto text-sm font-mono border border-gray-800">
-                  <code className="text-gray-300">{visionResult.compose_code}</code>
+                  <code className="text-gray-300">{visionResult.code?.compose || visionResult.compose_code}</code>
                 </pre>
                 <button
-                  onClick={() => copyToClipboard(visionResult.compose_code)}
+                  onClick={() => copyToClipboard(visionResult.code?.compose || visionResult.compose_code)}
                   className="mt-4 flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-sm font-medium transition-all"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
