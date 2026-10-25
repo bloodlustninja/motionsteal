@@ -155,6 +155,26 @@ With fixed endpoints (0,0) and (1,1).
 - Auto-trims idle frames at start/end using 5% peak velocity threshold
 - Determines dominant motion axis (X or Y)
 
+## Known Limitations
+
+**MotionSteal works best for:**
+- Rigid object translations (buttons, cards, icons moving across screen)
+- Simple shape changes (scaling, rotation)
+- Single-element animations with consistent bounding boxes
+
+**MotionSteal may struggle with:**
+- Object splitting (one sphere → multiple spheres)
+- Non-rigid deformations (sphere → bar, shape morphing)
+- Complex multi-part animations without manual ROI selection
+- Drastic scale changes that confuse the tracker
+- Objects that merge or separate during animation
+
+**Technical constraints:**
+- Uses CSRT tracker designed for rigid objects
+- Optical flow fallback exists but has limited effectiveness for complex transformations
+- Manual multi-element selection required for tracking multiple distinct objects
+- Best results with clear, high-contrast UI elements
+
 ## Constraints & Edge Cases
 
 - No GUI windows in backend (uses `opencv-python-headless`)
