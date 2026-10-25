@@ -31,6 +31,7 @@ function App() {
   const ghostBoxRef = useRef(null);
   const [aiApiKey, setAiApiKey] = useState('');
   const [useAiAnalysis, setUseAiAnalysis] = useState(false);
+  const [fluidResult, setFluidResult] = useState(null);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -320,6 +321,38 @@ function App() {
     }
   };
 
+  const handleFluidAnalyze = async () => {
+    if (!videoFile) {
+      setError('Please upload a video');
+      return;
+    }
+
+    if (roi.w === 0 || roi.h === 0) {
+      setError('Please select a region of interest');
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setError(null);
+
+    const formData = new FormData();
+    formData.append('video', videoFile);
+    formData.append('roi', JSON.stringify(roi));
+
+    try {
+      const response = await axios.post(`${API_URL}/api/analyze-fluid`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      setFluidResult(response.data);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Fluid analysis failed');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleSelectProposal = (index) => {
     const proposal = autoProposals[index];
     setRoi(proposal);
@@ -573,6 +606,21 @@ function App() {
                   </span>
                 ) : 'Analyze Motion'}
               </button>
+              <button
+                onClick={handleFluidAnalyze}
+                disabled={isAnalyzing || roi.w === 0 || roi.h === 0}
+                className="px-8 py-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed rounded-xl font-medium transition-all duration-300 shadow-lg shadow-amber-500/25 hover:shadow-amber-500/40 disabled:shadow-none"
+              >
+                {isAnalyzing ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Analyzing...
+                  </span>
+                ) : 'Analyze Fluid UI'}
+              </button>
             </div>
           </div>
         )}
@@ -585,6 +633,129 @@ function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <p className="text-red-300">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Fluid UI Results */}
+        {fluidResult && (
+          <div className="space-y-8">
+            <div className="rounded-2xl bg-gradient-to-r from-amber-900/30 to-orange-900/30 border border-amber-500/30 p-8">
+              <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                Fluid UI Analysis
+              </h2>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-6 mb-6">
+                <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                  <p className="text-gray-400 text-sm mb-1">Total Frames</p>
+                  <p className="text-xl font-mono text-amber-400">{fluidResult.fluid_metrics.length}</p>
+                </div>
+                <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                  <p className="text-gray-400 text-sm mb-1">Phase Transition</p>
+                  <p className="text-xl font-mono text-orange-400">
+                    {fluidResult.phase_transition ? `${(fluidResult.phase_transition * 1000).toFixed(0)}ms` : 'N/A'}
+                  </p>
+                </div>
+                <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                  <p className="text-gray-400 text-sm mb-1">Phases Detected</p>
+                  <p className="text-xl font-mono text-yellow-400">{fluidResult.phases.length}</p>
+                </div>
+              </div>
+              <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                <p className="text-gray-400 text-sm mb-3">Animation Phases</p>
+                <div className="space-y-2">
+                  {fluidResult.phases.map((phase, i) => (
+                    <div key={i} className="flex items-center gap-3 text-sm">
+                      <span className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-mono">
+                        {i + 1}
+                      </span>
+                      <span className="text-gray-300">
+                        {phase.name} ({(phase.start_t * 1000).toFixed(0)}ms → {(phase.end_t * 1000).toFixed(0)}ms) - {phase.type}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Code Export */}
+            <div className="rounded-2xl bg-gray-900/50 backdrop-blur-sm border border-gray-800 p-8">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                  </div>
+                  Generated Code
+                </h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => copyToClipboard(fluidResult.code?.[codeTarget] || fluidResult.code?.compose || '')}
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-xl text-sm font-medium transition-all duration-300 border border-gray-700 hover:border-gray-600"
+                  >
+                    {copied ? (
+                      <>
+                        <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Copied!
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        Copy to Clipboard
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Code Target Tabs */}
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={() => setCodeTarget('compose')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    codeTarget === 'compose'
+                      ? 'bg-amber-600 text-white'
+                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  Jetpack Compose
+                </button>
+                <button
+                  onClick={() => setCodeTarget('framer')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    codeTarget === 'framer'
+                      ? 'bg-amber-600 text-white'
+                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  Framer Motion
+                </button>
+                <button
+                  onClick={() => setCodeTarget('flutter')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    codeTarget === 'flutter'
+                      ? 'bg-amber-600 text-white'
+                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  Flutter
+                </button>
+              </div>
+
+              <pre className="bg-gray-950 rounded-xl p-6 overflow-x-auto text-sm font-mono border border-gray-800">
+                <code className="text-gray-300">
+                  {fluidResult.code?.[codeTarget] || fluidResult.code?.compose || fluidResult.compose_code}
+                </code>
+              </pre>
             </div>
           </div>
         )}

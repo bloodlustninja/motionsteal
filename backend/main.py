@@ -1090,6 +1090,285 @@ Describe:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def measure_fluid_dynamics(video_path, roi):
+    """
+    Extract fluid animation metrics using contour/moment tracking.
+    Detects phase transitions (translation → expansion).
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise HTTPException(status_code=400, detail="Could not open video file")
+
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0:
+            fps = 30.0
+
+        ret, frame = cap.read()
+        if not ret:
+            raise HTTPException(status_code=400, detail="Could not read first frame")
+
+        x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
+
+        fluid_metrics = []
+        frame_idx = 0
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # Crop to ROI
+            crop = frame[y:y+h, x:x+w]
+            if crop.size == 0:
+                break
+
+            # Convert to grayscale
+            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+
+            # Apply adaptive thresholding to detect moving elements
+            thresh = cv2.adaptiveThreshold(
+                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY, 11, 2
+            )
+
+            # Find contours
+            contours, _ = cv2.findContours(
+                thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+
+            if contours:
+                # Get largest contour
+                largest_contour = max(contours, key=cv2.contourArea)
+
+                # Calculate moments
+                M = cv2.moments(largest_contour)
+                if M["m00"] > 0:
+                    cx = M["m10"] / M["m00"]
+                    cy = M["m01"] / M["m00"]
+
+                    # Get bounding rect
+                    rect = cv2.boundingRect(largest_contour)
+                    width = rect[2]
+                    height = rect[3]
+                    aspect_ratio = width / height if height > 0 else 1.0
+
+                    fluid_metrics.append({
+                        "frame": frame_idx,
+                        "t": frame_idx / fps,
+                        "cx": float(cx),
+                        "cy": float(cy),
+                        "width": float(width),
+                        "height": float(height),
+                        "aspect_ratio": float(aspect_ratio)
+                    })
+
+            frame_idx += 1
+
+        cap.release()
+
+        # Detect phase transition: translation stops, expansion begins
+        if len(fluid_metrics) < 2:
+            return {
+                "metrics": fluid_metrics,
+                "phase_transition": None,
+                "phases": []
+            }
+
+        # Calculate velocity for width changes
+        width_velocities = []
+        for i in range(1, len(fluid_metrics)):
+            dt = fluid_metrics[i]["t"] - fluid_metrics[i-1]["t"]
+            if dt > 0:
+                dw = fluid_metrics[i]["width"] - fluid_metrics[i-1]["width"]
+                width_velocities.append(dw / dt)
+
+        # Find where width expansion starts
+        if width_velocities:
+            avg_velocity = np.mean(width_velocities)
+            transition_idx = 0
+            for i, vel in enumerate(width_velocities):
+                if vel > avg_velocity * 2:  # Significant width increase
+                    transition_idx = i
+                    break
+
+            transition_time = fluid_metrics[transition_idx]["t"] if transition_idx < len(fluid_metrics) else None
+        else:
+            transition_time = None
+
+        # Define phases
+        phases = []
+        if transition_time is not None:
+            phases.append({
+                "name": "translation",
+                "start_t": 0.0,
+                "end_t": transition_time,
+                "type": "spring"
+            })
+            phases.append({
+                "name": "expansion",
+                "start_t": transition_time,
+                "end_t": fluid_metrics[-1]["t"],
+                "type": "width_animation"
+            })
+        else:
+            phases.append({
+                "name": "single_phase",
+                "start_t": 0.0,
+                "end_t": fluid_metrics[-1]["t"],
+                "type": "spring"
+            })
+
+        return {
+            "metrics": fluid_metrics,
+            "phase_transition": transition_time,
+            "phases": phases
+        }
+
+    finally:
+        cap.release()
+
+
+def synthesize_fluid_compose_code(phases, metrics):
+    """
+    Generate Jetpack Compose code for fluid UI animations using template engine.
+    Maps phases to Compose animation patterns.
+    """
+    if not phases:
+        return "// No phases detected - could not synthesize animation"
+
+    total_duration = phases[-1]["end_t"] * 1000  # Convert to ms
+
+    code = f"""// Fluid UI Animation - {len(phases)} phases
+@Composable
+fun FluidUIAnimation(
+    modifier: Modifier = Modifier
+) {{
+    var expanded by remember {{ mutableStateOf(false) }}
+
+    // Define animation states
+    enum class AnimationState {{
+        Collapsed,
+        Expanded
+    }}
+
+    val state by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = 0.7f,
+            stiffness = 300f
+        ),
+        label = "fluid_animation"
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(200.dp)
+            .background(Color(0xFF1A1A1A))
+            .clip(RoundedCornerShape(16.dp))
+    ) {{
+        // Animated width based on state
+        Box(
+            modifier = Modifier
+                .width((100 + state * 200).dp)
+                .height(100.dp)
+                .offset(
+                    x = (state * 50).dp,
+                    y = (state * 50).dp
+                )
+                .background(
+                    if (expanded)
+                        Color(0xFF6366F1)
+                    else
+                        Color(0xFF8B5CF6)
+                )
+                .clip(RoundedCornerShape(12.dp))
+        ) {{
+            // Icon visibility based on state
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn() + scaleIn(),
+                exit = fadeOut() + scaleOut()
+            ) {{
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .align(Alignment.Center)
+                )
+            }}
+        }}
+    }}
+}}
+
+// Usage:
+// FluidUIAnimation(modifier = Modifier.padding(16.dp))
+"""
+
+    return code
+
+
+@app.post("/api/analyze-fluid")
+async def analyze_fluid(
+    video: UploadFile = File(...),
+    roi: str = Form(...),
+):
+    """
+    Analyze fluid UI animations using classical contour tracking.
+    Detects phase transitions and generates Compose animation code.
+    """
+    try:
+        # Parse ROI
+        roi_data = json.loads(roi)
+
+        # Save uploaded video to temp file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        content = await video.read()
+        temp_file.write(content)
+        temp_file.close()
+        temp_file_path = temp_file.name
+
+        try:
+            # Measure fluid dynamics
+            dynamics = measure_fluid_dynamics(temp_file_path, roi_data)
+
+            # Synthesize Compose code
+            compose_code = synthesize_fluid_compose_code(
+                dynamics["phases"],
+                dynamics["metrics"]
+            )
+
+            return {
+                "status": "success",
+                "fluid_metrics": dynamics["metrics"],
+                "phase_transition": dynamics["phase_transition"],
+                "phases": dynamics["phases"],
+                "compose_code": compose_code,
+                "code": {
+                    "compose": compose_code,
+                    "framer": generate_framer_motion_code("spring", {"damping_ratio": 0.7, "stiffness": 300}, int(dynamics["phases"][-1]["end_t"] * 1000) if dynamics["phases"] else 300),
+                    "flutter": generate_flutter_code("spring", {"damping_ratio": 0.7, "stiffness": 300}, int(dynamics["phases"][-1]["end_t"] * 1000) if dynamics["phases"] else 300),
+                }
+            }
+
+        finally:
+            import time
+            time.sleep(0.1)
+            try:
+                os.unlink(temp_file_path)
+            except:
+                pass
+
+    except Exception as e:
+        print(f"Fluid analysis error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/analyze-motion")
 async def analyze_motion(
     video: UploadFile = File(...),
