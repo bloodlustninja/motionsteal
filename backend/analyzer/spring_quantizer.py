@@ -4,6 +4,7 @@ Snaps raw (zeta, omega) values to standard mobile design system spring presets.
 """
 
 from typing import Dict, Tuple
+import numpy as np
 
 
 SPRING_PRESETS = {
