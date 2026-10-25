@@ -29,6 +29,8 @@ function App() {
   const [isPlayingGhost, setIsPlayingGhost] = useState(false);
   const ghostVideoRef = useRef(null);
   const ghostBoxRef = useRef(null);
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [useAiAnalysis, setUseAiAnalysis] = useState(false);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);

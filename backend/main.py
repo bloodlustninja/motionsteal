@@ -13,6 +13,7 @@ import math
 import base64
 from google import genai
 from google.genai import types
+import asyncio
 
 app = FastAPI(title="MotionSteal API")
 
@@ -24,6 +25,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Optional AI API key (can be set via environment variable or per-request)
+DEFAULT_AI_API_KEY = os.environ.get("AI_API_KEY")  # User's own API key
 
 
 class ROI(BaseModel):
@@ -955,6 +959,132 @@ async def vision_synthesize(
         }
     except Exception as e:
         print(f"Vision synthesis error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/analyze-with-ai")
+async def analyze_with_ai(
+    video: UploadFile = File(...),
+    roi: str = Form(...),
+    mode: str = Form(...),
+    orientation: Optional[str] = Form("auto"),
+    rois: Optional[str] = Form(None),
+    fps_override: Optional[float] = Form(None),
+    ai_api_key: Optional[str] = Form(None),
+    ai_provider: Optional[str] = Form("gemini"),  # gemini, claude, openai
+):
+    """
+    Analyze motion with local tracking + AI vision for enhanced understanding.
+    User provides their own API key - no costs to us.
+    """
+    try:
+        # Use user's API key or default from env
+        api_key = ai_api_key or DEFAULT_AI_API_KEY
+        if not api_key:
+            raise HTTPException(
+                status_code=400,
+                detail="AI API key required. Provide via ai_api_key parameter or AI_API_KEY environment variable."
+            )
+
+        # First, do local motion tracking (free, no API needed)
+        # Parse ROI
+        roi_data = json.loads(roi)
+
+        # Parse multiple ROIs if provided
+        rois_data = None
+        if rois:
+            try:
+                rois_data = json.loads(rois)
+                if not isinstance(rois_data, list):
+                    rois_data = [rois_data]
+            except json.JSONDecodeError:
+                rois_data = None
+
+        # Save uploaded video to temp file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        content = await video.read()
+        temp_file.write(content)
+        temp_file.close()
+        temp_file_path = temp_file.name
+
+        try:
+            # Process with local tracking (no AI yet)
+            if mode == "translate":
+                result = process_translate_mode(temp_file_path, roi_data, fps_override)
+            elif mode == "fill_progress":
+                result = process_fill_progress_mode(temp_file_path, roi_data, fps_override, orientation)
+            elif mode == "multi_element":
+                if not rois_data or not isinstance(rois_data, list) or len(rois_data) == 0:
+                    raise HTTPException(status_code=400, detail="Multi-element mode requires at least one ROI")
+                result = process_multi_element_mode(temp_file_path, rois_data, fps_override)
+            else:
+                raise HTTPException(status_code=400, detail="Invalid mode")
+
+            # Now use AI to enhance understanding (only on keyframes)
+            # Extract 5 representative frames from telemetry
+            telemetry = result.get("raw_telemetry", [])
+            if telemetry and len(telemetry) > 0:
+                # Extract keyframes (start, middle, end, etc.)
+                keyframe_indices = [
+                    0,
+                    len(telemetry) // 4,
+                    len(telemetry) // 2,
+                    3 * len(telemetry) // 4,
+                    len(telemetry) - 1
+                ]
+
+                # Extract frames from video
+                cap = cv2.VideoCapture(temp_file_path)
+                keyframes = []
+                for idx in keyframe_indices:
+                    if idx < len(telemetry):
+                        frame_num = int(telemetry[idx]["t"] * (cap.get(cv2.CAP_PROP_FPS) or 30))
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+                        ret, frame = cap.read()
+                        if ret:
+                            _, buffer = cv2.imencode('.jpg', frame)
+                            keyframes.append(base64.b64encode(buffer).decode('utf-8'))
+                cap.release()
+
+                # Send to AI for analysis
+                if ai_provider == "gemini" and keyframes:
+                    client = genai.Client(api_key=api_key)
+                    prompt = f"""
+Analyze these keyframes from a UI animation.
+Motion data: duration={result.get('duration_ms')}ms, fit_type={result.get('fit_type')}
+Describe:
+1. What kind of animation is this? (fade, slide, scale, morph, particle effect, etc.)
+2. Any special effects or layered elements?
+3. Suggestions for improving the generated code?
+"""
+                    # Send first few keyframes
+                    parts = [prompt]
+                    for kf in keyframes[:3]:
+                        parts.append(types.Part.from_bytes(data=base64.b64decode(kf), mime_type="image/jpeg"))
+
+                    try:
+                        response = client.models.generate_content(
+                            model="gemini-2.0-flash",
+                            contents=parts
+                        )
+                        result["ai_insights"] = response.text
+                    except Exception as e:
+                        result["ai_insights"] = f"AI analysis failed: {str(e)}"
+
+            return result
+
+        finally:
+            import time
+            time.sleep(0.1)
+            try:
+                os.unlink(temp_file_path)
+            except:
+                pass
+
+    except Exception as e:
+        print(f"Analysis with AI error: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
