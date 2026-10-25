@@ -18,6 +18,8 @@ from google.genai import types
 from analyzer.point_cluster_tracker import extract_point_cluster_trajectory
 from analyzer.keyframe_diff import extract_keyframe_diff
 from analyzer.spring_quantizer import quantize_spring
+from analyzer.keyframe_sampler import extract_keyframes_from_video
+from synthesis.state_diff_synthesizer import analyze_state_transitions
 
 app = FastAPI(title="MotionSteal API")
 
@@ -1504,6 +1506,93 @@ async def analyze_fluid_advanced(
 
     except Exception as e:
         print(f"Fluid advanced analysis error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/synthesize-states")
+async def synthesize_states(
+    video: UploadFile = File(...),
+    roi: Optional[str] = Form(None),
+    ai_api_key: Optional[str] = Form(None),
+):
+    """
+    Synthesize animation using 3-frame semantic state-diffing.
+    Completely bypasses optical flow and CSRT tracking.
+    """
+    try:
+        # Parse ROI if provided
+        roi_data = json.loads(roi) if roi else None
+
+        # Save uploaded video to temp file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        content = await video.read()
+        temp_file.write(content)
+        temp_file.close()
+        temp_file_path = temp_file.name
+
+        try:
+            # Step 1: Extract 3 keyframes (Idle, Apex, Settled)
+            print("Extracting 3 keyframes...")
+            keyframe_data = extract_keyframes_from_video(temp_file_path, roi_data)
+            print(f"Keyframes extracted: {list(keyframe_data['keyframes'].keys())}")
+
+            # Step 2: Analyze state transitions with Gemini
+            print("Analyzing state transitions with Gemini...")
+            state_machine = analyze_state_transitions(
+                keyframe_data["keyframes"],
+                ai_api_key
+            )
+            print(f"State machine: {state_machine}")
+
+            # Step 3: Generate code from state machine
+            from synthesis.compilers.compose_compiler import ComposeCompiler
+            from synthesis.compilers.framer_compiler import FramerCompiler
+            from synthesis.compilers.flutter_compiler import FlutterCompiler
+
+            spring_preset = state_machine.get("spring_preset", "Fluid")
+
+            compose_compiler = ComposeCompiler()
+            compose_code = compose_compiler.compile_from_state_machine(
+                state_machine,
+                spring_preset
+            )
+
+            framer_compiler = FramerCompiler()
+            framer_code = framer_compiler.compile_from_state_machine(
+                state_machine,
+                spring_preset
+            )
+
+            flutter_compiler = FlutterCompiler()
+            flutter_code = flutter_compiler.compile_from_state_machine(
+                state_machine,
+                spring_preset
+            )
+
+            return {
+                "status": "success",
+                "keyframes": keyframe_data,
+                "state_machine": state_machine,
+                "spring_preset": spring_preset,
+                "code": {
+                    "compose": compose_code,
+                    "framer": framer_code,
+                    "flutter": flutter_code
+                }
+            }
+
+        finally:
+            import time
+            time.sleep(0.1)
+            try:
+                os.unlink(temp_file_path)
+            except:
+                pass
+
+    except Exception as e:
+        print(f"State synthesis error: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
