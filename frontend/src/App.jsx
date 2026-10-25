@@ -32,6 +32,16 @@ function App() {
   const [aiApiKey, setAiApiKey] = useState('');
   const [useAiAnalysis, setUseAiAnalysis] = useState(false);
   const [fluidResult, setFluidResult] = useState(null);
+  const [scrubPosition, setScrubPosition] = useState(0);
+  const [totalFrames, setTotalFrames] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [controlParams, setControlParams] = useState({
+    dampingRatio: 0.7,
+    stiffness: 300,
+    scaleFactor: 1.0,
+    colorTheme: 'purple'
+  });
+  const [showCodeDrawer, setShowCodeDrawer] = useState(false);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -530,6 +540,121 @@ function App() {
           </div>
         )}
 
+        {/* Scrub Bar */}
+        {videoUrl && (
+          <div className="mb-10 rounded-2xl bg-gray-900/50 backdrop-blur-sm border border-gray-800 p-6">
+            <div className="flex items-center gap-4 mb-4">
+              <button
+                onClick={() => {
+                  if (videoRef.current) {
+                    if (isPlaying) {
+                      videoRef.current.pause();
+                    } else {
+                      videoRef.current.play();
+                    }
+                    setIsPlaying(!isPlaying);
+                  }
+                }}
+                className="w-10 h-10 rounded-full bg-gray-800 hover:bg-gray-700 flex items-center justify-center transition-colors"
+              >
+                {isPlaying ? (
+                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                )}
+              </button>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={scrubPosition}
+                onChange={(e) => {
+                  const position = parseFloat(e.target.value);
+                  setScrubPosition(position);
+                  if (videoRef.current) {
+                    videoRef.current.currentTime = (position / 100) * videoRef.current.duration;
+                  }
+                }}
+                className="flex-1 h-2 bg-gray-700 rounded-full appearance-none cursor-pointer"
+              />
+              <span className="text-sm text-gray-400 font-mono w-20 text-right">
+                {scrubPosition.toFixed(0)}%
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Control Panel */}
+        {videoUrl && (
+          <div className="mb-10 rounded-2xl bg-gray-900/50 backdrop-blur-sm border border-gray-800 p-6">
+            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+              <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4 4m0-4v8m0-6h6a2 2 0 110 4 4h-6" />
+              </svg>
+              Animation Parameters
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">Damping Ratio</label>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1.5"
+                  step="0.05"
+                  value={controlParams.dampingRatio}
+                  onChange={(e) => setControlParams({...controlParams, dampingRatio: parseFloat(e.target.value)})}
+                  className="w-full"
+                />
+                <span className="text-sm text-purple-400 font-mono">{controlParams.dampingRatio.toFixed(2)}</span>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">Stiffness</label>
+                <input
+                  type="range"
+                  min="50"
+                  max="500"
+                  step="10"
+                  value={controlParams.stiffness}
+                  onChange={(e) => setControlParams({...controlParams, stiffness: parseFloat(e.target.value)})}
+                  className="w-full"
+                />
+                <span className="text-sm text-blue-400 font-mono">{controlParams.stiffness.toFixed(0)}</span>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">Scale Factor</label>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2.0"
+                  step="0.1"
+                  value={controlParams.scaleFactor}
+                  onChange={(e) => setControlParams({...controlParams, scaleFactor: parseFloat(e.target.value)})}
+                  className="w-full"
+                />
+                <span className="text-sm text-green-400 font-mono">{controlParams.scaleFactor.toFixed(1)}x</span>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">Color Theme</label>
+                <select
+                  value={controlParams.colorTheme}
+                  onChange={(e) => setControlParams({...controlParams, colorTheme: e.target.value})}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white"
+                >
+                  <option value="purple">Purple</option>
+                  <option value="blue">Blue</option>
+                  <option value="green">Green</option>
+                  <option value="orange">Orange</option>
+                  <option value="pink">Pink</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Controls */}
         {videoUrl && (
           <div className="mb-10 rounded-2xl bg-gray-900/50 backdrop-blur-sm border border-gray-800 p-6">
@@ -943,19 +1068,18 @@ function App() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                     </svg>
                   </div>
-                  Ghost-Diff Sandbox
+                  MotionForge Studio - Ghost-Diff Parity
                 </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Left: Video Playback */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Left: Original Video */}
                   <div>
-                    <p className="text-gray-400 text-sm mb-3">Original Video (ROI)</p>
+                    <p className="text-gray-400 text-sm mb-3">Original Video</p>
                     <div className="relative bg-gray-800 rounded-xl overflow-hidden aspect-video">
                       <video
                         ref={videoRef}
                         src={videoUrl}
                         className="w-full h-full object-cover"
                       />
-                      {/* ROI overlay */}
                       {roi.w > 0 && roi.h > 0 && (
                         <div
                           className="absolute border-2 border-green-500 pointer-events-none"
@@ -970,14 +1094,34 @@ function App() {
                     </div>
                   </div>
 
-                  {/* Right: CSS Animation */}
+                  {/* Center: Interactive Component */}
                   <div>
-                    <p className="text-gray-400 text-sm mb-3">CSS Animation (Web Animations API)</p>
+                    <p className="text-gray-400 text-sm mb-3">Interactive Component</p>
                     <div className="relative bg-gray-800 rounded-xl overflow-hidden aspect-video flex items-center justify-center">
                       <div
                         ref={ghostBoxRef}
                         className="w-16 h-16 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 shadow-lg shadow-purple-500/30"
                       />
+                    </div>
+                  </div>
+
+                  {/* Right: Ghost-Diff Overlay */}
+                  <div>
+                    <p className="text-gray-400 text-sm mb-3">Ghost-Diff (mix-blend-mode: difference)</p>
+                    <div className="relative bg-gray-800 rounded-xl overflow-hidden aspect-video flex items-center justify-center">
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <video
+                          ref={videoRef}
+                          src={videoUrl}
+                          className="w-full h-full object-cover"
+                          style={{ mixBlendMode: 'difference', opacity: 0.7 }}
+                        />
+                        <div
+                          ref={ghostBoxRef}
+                          className="w-16 h-16 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 shadow-lg shadow-purple-500/30"
+                          style={{ mixBlendMode: 'normal', position: 'relative' }}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1090,6 +1234,15 @@ function App() {
                 </h2>
                 <div className="flex gap-2">
                   <button
+                    onClick={() => setShowCodeDrawer(!showCodeDrawer)}
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-xl text-sm font-medium transition-all duration-300 border border-gray-700 hover:border-gray-600"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                    {showCodeDrawer ? 'Close Drawer' : 'Open Drawer'}
+                  </button>
+                  <button
                     onClick={() => copyToClipboard(result.code?.[codeTarget] || result.code?.compose || '')}
                     className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-xl text-sm font-medium transition-all duration-300 border border-gray-700 hover:border-gray-600"
                   >
@@ -1111,6 +1264,89 @@ function App() {
                   </button>
                 </div>
               </div>
+
+              {/* Code Drawer */}
+              {showCodeDrawer && (
+                <div className="fixed inset-y right-0 w-96 bg-gray-900 border-l border-gray-800 shadow-2xl overflow-y-auto z-50">
+                  <div className="p-6">
+                    <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-lg font-bold text-white">Code Export</h3>
+                      <button
+                        onClick={() => setShowCodeDrawer(false)}
+                        className="text-gray-400 hover:text-white"
+                      >
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    {/* Quick Actions */}
+                    <div className="space-y-3 mb-6">
+                      <button
+                        onClick={() => window.open('https://codesandbox.io/s/react', '_blank')}
+                        className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-medium transition-colors"
+                      >
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8-8zm0-14c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6-6z" />
+                        </svg>
+                        Open in CodeSandbox
+                      </button>
+                      <button
+                        onClick={() => window.open('https://stackblitz.com/edit/react', '_blank')}
+                        className="w-full flex items-center gap-3 px-4 py-3 bg-purple-600 hover:bg-purple-500 rounded-xl text-sm font-medium transition-colors"
+                      >
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M6 3v12l8-6-6V1H4v6l8 6zM4 13h16" />
+                        </svg>
+                        Open in StackBlitz
+                      </button>
+                    </div>
+
+                    {/* Code Tabs */}
+                    <div className="flex gap-2 mb-4">
+                      <button
+                        onClick={() => setCodeTarget('compose')}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                          codeTarget === 'compose'
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        }`}
+                      >
+                        Compose
+                      </button>
+                      <button
+                        onClick={() => setCodeTarget('framer')}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                          codeTarget === 'framer'
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        }`}
+                      >
+                        Framer
+                      </button>
+                      <button
+                        onClick={() => setCodeTarget('flutter')}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                          codeTarget === 'flutter'
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        }`}
+                      >
+                        Flutter
+                      </button>
+                    </div>
+
+                    {/* Code Display */}
+                    <pre className="bg-gray-950 rounded-xl p-4 overflow-x-auto text-xs font-mono border border-gray-800">
+                      <code className="text-gray-300">
+                        {result.code?.[codeTarget] || result.code?.compose || result.compose_code}
+                      </code>
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </div>
 
               {/* Code Target Tabs */}
               <div className="flex gap-2 mb-4">
