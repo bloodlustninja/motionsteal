@@ -19,6 +19,9 @@ function App() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [orientation, setOrientation] = useState('auto');
   const [rois, setRois] = useState([]);
+  const [googleApiKey, setGoogleApiKey] = useState('');
+  const [visionResult, setVisionResult] = useState(null);
+  const [isSynthesizing, setIsSynthesizing] = useState(false);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -487,6 +490,81 @@ function App() {
                     ))}
                   </div>
                 </div>
+
+                {/* Vision Bridge - AI Styling */}
+                {result.element_crops && (
+                  <div className="mt-8 rounded-xl bg-gradient-to-r from-purple-900/30 to-blue-900/30 border border-purple-500/30 p-6">
+                    <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                      <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                      AI-Powered Styling (Gemini Vision)
+                    </h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-2">Google API Key</label>
+                        <input
+                          type="password"
+                          value={googleApiKey}
+                          onChange={(e) => setGoogleApiKey(e.target.value)}
+                          placeholder="Enter your Google AI API key"
+                          className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                        />
+                      </div>
+                      <div className="flex gap-4">
+                        <select
+                          value="0"
+                          className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white"
+                        >
+                          {Object.keys(result.element_crops)
+                            .filter(k => k.startsWith('start_'))
+                            .map((k, i) => (
+                              <option key={i} value={k.replace('start_', '')}>
+                                Element {k.replace('start_', '')}
+                              </option>
+                            ))}
+                        </select>
+                        <button
+                          onClick={async () => {
+                            if (!googleApiKey) {
+                              setError('Please enter your Google API key');
+                              return;
+                            }
+                            setIsSynthesizing(true);
+                            try {
+                              const elementId = '0';
+                              const startCrop = result.element_crops[`start_${elementId}`];
+                              const endCrop = result.element_crops[`end_${elementId}`];
+
+                              const startBlob = await fetch(`data:image/png;base64,${startCrop}`).then(r => r.blob());
+                              const endBlob = await fetch(`data:image/png;base64,${endCrop}`).then(r => r.blob());
+
+                              const formData = new FormData();
+                              formData.append('start_crop', startBlob, 'start.png');
+                              formData.append('end_crop', endBlob, 'end.png');
+                              formData.append('duration_ms', result.duration_ms || 300);
+                              formData.append('max_rotation', 0.0);
+                              formData.append('api_key', googleApiKey);
+
+                              const response = await axios.post(`${API_URL}/api/vision-synthesize`, formData, {
+                                headers: { 'Content-Type': 'multipart/form-data' },
+                              });
+                              setVisionResult(response.data);
+                            } catch (err) {
+                              setError(err.response?.data?.detail || 'Vision synthesis failed');
+                            } finally {
+                              setIsSynthesizing(false);
+                            }
+                          }}
+                          disabled={isSynthesizing || !googleApiKey}
+                          className="px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:from-gray-700 disabled:to-gray-700 rounded-xl font-medium transition-all"
+                        >
+                          {isSynthesizing ? 'Generating...' : 'Generate Styled Compose'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -636,6 +714,32 @@ function App() {
                 <code className="text-gray-300">{result.compose_code}</code>
               </pre>
             </div>
+
+            {/* Vision Synthesis Result */}
+            {visionResult && (
+              <div className="rounded-2xl bg-gradient-to-r from-purple-900/30 to-blue-900/30 border border-purple-500/30 p-8">
+                <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                  </div>
+                  AI-Generated Styled Compose
+                </h2>
+                <pre className="bg-gray-950 rounded-xl p-6 overflow-x-auto text-sm font-mono border border-gray-800">
+                  <code className="text-gray-300">{visionResult.compose_code}</code>
+                </pre>
+                <button
+                  onClick={() => copyToClipboard(visionResult.compose_code)}
+                  className="mt-4 flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-sm font-medium transition-all"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  Copy Styled Code
+                </button>
+              </div>
+            )}
           </div>
         )}
 

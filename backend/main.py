@@ -10,6 +10,9 @@ import json
 import tempfile
 import os
 import math
+import base64
+from google import genai
+from google.genai import types
 
 app = FastAPI(title="MotionSteal API")
 
@@ -497,11 +500,22 @@ def process_multi_element_mode(video_path, rois, fps_override):
         prev_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         frame_idx = 0
 
+        # Save initial crops for vision synthesis
+        element_crops = {}
+        for i, roi in enumerate(rois):
+            x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
+            crop = frame[y:y+h, x:x+w]
+            _, buffer = cv2.imencode('.png', crop)
+            element_crops[f"start_{i}"] = base64.b64encode(buffer).decode('utf-8')
+
+        last_valid_frame = frame.copy()
+
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
 
+            last_valid_frame = frame.copy()
             curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             t_sec = frame_idx / fps
 
@@ -526,6 +540,18 @@ def process_multi_element_mode(video_path, rois, fps_override):
     finally:
         cap.release()
 
+    # Save final crops for vision synthesis
+    for i, track in enumerate(element_tracks):
+        if len(track) > 0:
+            last_record = track[-1]
+            cx, cy = int(last_record["x"]), int(last_record["y"])
+            hw, hh = int(last_record["w"] // 2), int(last_record["h"] // 2)
+            y1, y2 = max(0, cy - hh), min(last_valid_frame.shape[0], cy + hh)
+            x1, x2 = max(0, cx - hw), min(last_valid_frame.shape[1], cx + hw)
+            crop = last_valid_frame[y1:y2, x1:x2]
+            _, buffer = cv2.imencode('.png', crop)
+            element_crops[f"end_{i}"] = base64.b64encode(buffer).decode('utf-8')
+
     # Calculate stagger delays
     stagger_delays = []
     for i in range(len(rois)):
@@ -546,6 +572,7 @@ def process_multi_element_mode(video_path, rois, fps_override):
         "total_elements": len(rois),
         "stagger_delays": stagger_delays,
         "element_tracks": element_tracks,
+        "element_crops": element_crops,
         "compose_code": stagger_code,
     }
 
@@ -584,6 +611,88 @@ fun StaggeredAnimation() {
 }"""
 
     return code
+
+
+def synthesize_styled_ui_with_gemini(start_crop_bytes, end_crop_bytes, duration_ms, max_rotation, api_key=None):
+    """Use Gemini AI to generate fully styled Jetpack Compose code from visual crops"""
+    if not api_key:
+        # Try to get from environment variable
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            return None, "Google API key not provided"
+
+    try:
+        client = genai.Client(api_key=api_key)
+
+        prompt = f"""
+You are an expert Jetpack Compose engineer and UI designer.
+Look at these two cropped images representing the initial and final states of a UI component:
+- Image 1: Initial state
+- Image 2: Final settled state
+
+Motion Telemetry:
+- Duration: {duration_ms} ms
+- Max Rotation Detected: {max_rotation:.1f} degrees
+- Primary Motion: Translation & Scaling
+
+Your Task:
+1. Reconstruct the static UI layout in Jetpack Compose:
+   - Identify background colors / gradients (extract approximate hex codes).
+   - Corner radius (RoundedCornerShape).
+   - Inner typography, borders, drop shadows, or icons.
+2. Wire the animation into the Composable:
+   - Use `remember {{ Animatable(0f) }}` or `animateFloatAsState`.
+   - Apply translation, scale, and rotationZ directly via `Modifier.graphicsLayer {{ ... }}`.
+3. Output ONLY production-ready Kotlin code with imports. No conversational filler.
+"""
+
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            contents=[
+                prompt,
+                types.Part.from_bytes(data=start_crop_bytes, mime_type="image/png"),
+                types.Part.from_bytes(data=end_crop_bytes, mime_type="image/png")
+            ]
+        )
+
+        return response.text, None
+    except Exception as e:
+        return None, str(e)
+
+
+@app.post("/api/vision-synthesize")
+async def vision_synthesize(
+    start_crop: UploadFile = File(...),
+    end_crop: UploadFile = File(...),
+    duration_ms: int = Form(...),
+    max_rotation: float = Form(0.0),
+    api_key: Optional[str] = Form(None),
+):
+    """Generate fully styled Jetpack Compose code using Gemini AI"""
+    try:
+        start_bytes = await start_crop.read()
+        end_bytes = await end_crop.read()
+
+        compose_code, error = synthesize_styled_ui_with_gemini(
+            start_bytes,
+            end_bytes,
+            duration_ms,
+            max_rotation,
+            api_key
+        )
+
+        if error:
+            raise HTTPException(status_code=500, detail=error)
+
+        return {
+            "status": "success",
+            "compose_code": compose_code,
+        }
+    except Exception as e:
+        print(f"Vision synthesis error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/analyze-motion")
