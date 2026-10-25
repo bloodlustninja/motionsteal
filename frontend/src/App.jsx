@@ -158,16 +158,39 @@ function App() {
     if (mode === 'multi_element') {
       setRois(prev => [...prev, newRoi]);
       setRoi(newRoi); // Also update single ROI for display
+      // In multi-element mode, keep selection active to add more elements
     } else {
       setRoi(newRoi);
+      setSelectionMode(false); // Exit selection mode after single ROI
     }
 
     setIsSelecting(false);
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape' && mode === 'multi_element' && selectionMode) {
+      setSelectionMode(false);
+    }
+  };
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectionMode, mode]);
+
   const handleAnalyze = async () => {
-    if (!videoFile || roi.w === 0 || roi.h === 0) {
-      setError('Please upload a video and select a region of interest');
+    if (!videoFile) {
+      setError('Please upload a video');
+      return;
+    }
+
+    if (mode === 'multi_element') {
+      if (rois.length === 0) {
+        setError('Please select at least one element');
+        return;
+      }
+    } else if (roi.w === 0 || roi.h === 0) {
+      setError('Please select a region of interest');
       return;
     }
 
@@ -179,6 +202,10 @@ function App() {
     formData.append('roi', JSON.stringify(roi));
     formData.append('mode', mode);
     formData.append('orientation', orientation);
+
+    if (mode === 'multi_element' && rois.length > 0) {
+      formData.append('rois', JSON.stringify(rois));
+    }
 
     try {
       const response = await axios.post(`${API_URL}/api/analyze-motion`, formData, {
@@ -259,9 +286,17 @@ function App() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2 text-gray-400 text-sm">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12 a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span>{selectionMode ? 'Selection mode active - drag to select region' : 'Toggle selection mode to draw ROI'}</span>
+                <span>
+                  {mode === 'multi_element'
+                    ? selectionMode
+                      ? `Selection mode active - draw ${rois.length + 1}th element (ESC to finish)`
+                      : `Selected ${rois.length} elements - Click to add more`
+                    : selectionMode
+                    ? 'Selection mode active - drag to select region'
+                    : 'Toggle selection mode to draw ROI'}
+                </span>
               </div>
               <button
                 onClick={() => {
@@ -332,6 +367,7 @@ function App() {
                 >
                   <option value="translate">Physical Motion (Translation/Scale)</option>
                   <option value="fill_progress">Component Fill (Slider/Level)</option>
+                  <option value="multi_element">Multi-Element (Stagger & Rotation)</option>
                 </select>
               </div>
 
@@ -347,6 +383,28 @@ function App() {
                     <option value="vertical">Vertical</option>
                     <option value="horizontal">Horizontal</option>
                   </select>
+                </div>
+              )}
+
+              {mode === 'multi_element' && (
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-sm font-medium text-gray-400 mb-2">Elements Selected</label>
+                  <div className="flex items-center gap-3">
+                    <div className="bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 font-mono text-sm text-purple-400">
+                      {rois.length} elements
+                    </div>
+                    {rois.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setRois([]);
+                          setRoi({ x: 0, y: 0, w: 0, h: 0 });
+                        }}
+                        className="px-3 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm transition-colors"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -391,109 +449,156 @@ function App() {
         {/* Results Section */}
         {result && (
           <div className="space-y-8">
-            {/* Metrics */}
-            <div className="rounded-2xl bg-gray-900/50 backdrop-blur-sm border border-gray-800 p-8">
-              <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                </div>
-                Analysis Results
-              </h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
-                  <p className="text-gray-400 text-sm mb-1">Dominant Axis</p>
-                  <p className="text-xl font-mono text-purple-400">{result.dominant_axis}</p>
-                </div>
-                <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
-                  <p className="text-gray-400 text-sm mb-1">Duration</p>
-                  <p className="text-xl font-mono text-blue-400">{result.duration_ms}ms</p>
-                </div>
-                <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
-                  <p className="text-gray-400 text-sm mb-1">Fit Type</p>
-                  <p className="text-xl font-mono capitalize text-green-400">{result.fit_type}</p>
-                </div>
-                <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
-                  <p className="text-gray-400 text-sm mb-1">Spring MSE</p>
-                  <p className="text-xl font-mono text-yellow-400">{result.metrics.spring_mse?.toFixed(6) || 'N/A'}</p>
-                </div>
-              </div>
-
-              {result.fit_type === 'spring' && (
-                <div className="mt-6 grid grid-cols-2 gap-6">
+            {/* Multi-Element Results */}
+            {result.total_elements && (
+              <div className="rounded-2xl bg-gray-900/50 backdrop-blur-sm border border-gray-800 p-8">
+                <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                  </div>
+                  Multi-Element Analysis
+                </h2>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-6 mb-6">
                   <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
-                    <p className="text-gray-400 text-sm mb-1">Damping Ratio</p>
-                    <p className="text-xl font-mono text-purple-400">{result.metrics.damping_ratio.toFixed(3)}</p>
+                    <p className="text-gray-400 text-sm mb-1">Total Elements</p>
+                    <p className="text-xl font-mono text-purple-400">{result.total_elements}</p>
                   </div>
                   <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
-                    <p className="text-gray-400 text-sm mb-1">Stiffness</p>
-                    <p className="text-xl font-mono text-blue-400">{result.metrics.stiffness.toFixed(1)}</p>
+                    <p className="text-gray-400 text-sm mb-1">Stagger Delays</p>
+                    <p className="text-xl font-mono text-blue-400">
+                      [{result.stagger_delays.map(d => (d * 1000).toFixed(0)).join(', ')}]ms
+                    </p>
                   </div>
                 </div>
-              )}
-
-              {result.fit_type === 'bezier' && (
-                <div className="mt-6 bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
-                  <p className="text-gray-400 text-sm mb-1">Bézier Handles</p>
-                  <p className="text-xl font-mono text-green-400">
-                    [{result.metrics.bezier_handles.map(h => h.toFixed(2)).join(', ')}]
-                  </p>
+                <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                  <p className="text-gray-400 text-sm mb-3">Element Tracks</p>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {Object.entries(result.element_tracks).map(([id, tracks]) => (
+                      <div key={id} className="flex items-center gap-3 text-sm">
+                        <span className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center font-mono">
+                          {id}
+                        </span>
+                        <span className="text-gray-400">
+                          {tracks.length} frames • Delay: {(result.stagger_delays[id] * 1000).toFixed(0)}ms
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              )}
-            </div>
-
-            {/* Chart */}
-            <div className="rounded-2xl bg-gray-900/50 backdrop-blur-sm border border-gray-800 p-8">
-              <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-                  </svg>
-                </div>
-                Motion Curve
-              </h2>
-              <ResponsiveContainer width="100%" height={350}>
-                <LineChart data={result.raw_telemetry}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" strokeOpacity={0.3} />
-                  <XAxis dataKey="t" stroke="#6B7280" label={{ value: 'Time (s)', position: 'insideBottom', offset: -5, fill: '#9CA3AF' }} />
-                  <YAxis stroke="#6B7280" label={{ value: 'Progress', angle: -90, position: 'insideLeft', fill: '#9CA3AF' }} />
-                  <Tooltip contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }} />
-                  <Legend />
-                  <Line type="monotone" dataKey="progress" stroke="#a78bfa" strokeWidth={3} dot={false} name="Raw Data" />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Live Preview */}
-            <div className="rounded-2xl bg-gray-900/50 backdrop-blur-sm border border-gray-800 p-8">
-              <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                </div>
-                Live Preview
-              </h2>
-              <div className="flex justify-center items-center h-48 bg-gray-800/50 rounded-xl border border-gray-700/50">
-                <div
-                  className="w-16 h-16 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 shadow-lg shadow-purple-500/30"
-                  style={{
-                    animation: `motionAnimation ${result.duration_ms}ms ease-in-out infinite alternate`,
-                  }}
-                />
               </div>
-              <style>{`
-                @keyframes motionAnimation {
-                  0% { transform: translateX(0); }
-                  100% { transform: translateX(200px); }
-                }
-              `}</style>
-              <p className="text-gray-400 text-sm mt-4 text-center">
-                Preview using extracted duration ({result.duration_ms}ms)
-              </p>
-            </div>
+            )}
+
+            {/* Standard Metrics (for single-element modes) */}
+            {!result.total_elements && (
+              <div className="rounded-2xl bg-gray-900/50 backdrop-blur-sm border border-gray-800 p-8">
+                <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                  </div>
+                  Analysis Results
+                </h2>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                  <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                    <p className="text-gray-400 text-sm mb-1">Dominant Axis</p>
+                    <p className="text-xl font-mono text-purple-400">{result.dominant_axis}</p>
+                  </div>
+                  <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                    <p className="text-gray-400 text-sm mb-1">Duration</p>
+                    <p className="text-xl font-mono text-blue-400">{result.duration_ms}ms</p>
+                  </div>
+                  <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                    <p className="text-gray-400 text-sm mb-1">Fit Type</p>
+                    <p className="text-xl font-mono capitalize text-green-400">{result.fit_type}</p>
+                  </div>
+                  <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                    <p className="text-gray-400 text-sm mb-1">Spring MSE</p>
+                    <p className="text-xl font-mono text-yellow-400">{result.metrics.spring_mse?.toFixed(6) || 'N/A'}</p>
+                  </div>
+                </div>
+
+                {result.fit_type === 'spring' && (
+                  <div className="mt-6 grid grid-cols-2 gap-6">
+                    <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                      <p className="text-gray-400 text-sm mb-1">Damping Ratio</p>
+                      <p className="text-xl font-mono text-purple-400">{result.metrics.damping_ratio.toFixed(3)}</p>
+                    </div>
+                    <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                      <p className="text-gray-400 text-sm mb-1">Stiffness</p>
+                      <p className="text-xl font-mono text-blue-400">{result.metrics.stiffness.toFixed(1)}</p>
+                    </div>
+                  </div>
+                )}
+
+                {result.fit_type === 'bezier' && (
+                  <div className="mt-6 bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                    <p className="text-gray-400 text-sm mb-1">Bézier Handles</p>
+                    <p className="text-xl font-mono text-green-400">
+                      [{result.metrics.bezier_handles.map(h => h.toFixed(2)).join(', ')}]
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Chart - Only for single-element modes */}
+            {!result.total_elements && (
+              <div className="rounded-2xl bg-gray-900/50 backdrop-blur-sm border border-gray-800 p-8">
+                <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                    </svg>
+                  </div>
+                  Motion Curve
+                </h2>
+                <ResponsiveContainer width="100%" height={350}>
+                  <LineChart data={result.raw_telemetry}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" strokeOpacity={0.3} />
+                    <XAxis dataKey="t" stroke="#6B7280" label={{ value: 'Time (s)', position: 'insideBottom', offset: -5, fill: '#9CA3AF' }} />
+                    <YAxis stroke="#6B7280" label={{ value: 'Progress', angle: -90, position: 'insideLeft', fill: '#9CA3AF' }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }} />
+                    <Legend />
+                    <Line type="monotone" dataKey="progress" stroke="#a78bfa" strokeWidth={3} dot={false} name="Raw Data" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Live Preview - Only for single-element modes */}
+            {!result.total_elements && (
+              <div className="rounded-2xl bg-gray-900/50 backdrop-blur-sm border border-gray-800 p-8">
+                <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                  </div>
+                  Live Preview
+                </h2>
+                <div className="flex justify-center items-center h-48 bg-gray-800/50 rounded-xl border border-gray-700/50">
+                  <div
+                    className="w-16 h-16 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 shadow-lg shadow-purple-500/30"
+                    style={{
+                      animation: `motionAnimation ${result.duration_ms}ms ease-in-out infinite alternate`,
+                    }}
+                  />
+                </div>
+                <style>{`
+                  @keyframes motionAnimation {
+                    0% { transform: translateX(0); }
+                    100% { transform: translateX(200px); }
+                  }
+                `}</style>
+                <p className="text-gray-400 text-sm mt-4 text-center">
+                  Preview using extracted duration ({result.duration_ms}ms)
+                </p>
+              </div>
+            )}
 
             {/* Code Export */}
             <div className="rounded-2xl bg-gray-900/50 backdrop-blur-sm border border-gray-800 p-8">
