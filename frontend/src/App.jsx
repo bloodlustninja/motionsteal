@@ -26,6 +26,9 @@ function App() {
   const [selectedProposal, setSelectedProposal] = useState(null);
   const [isSegmenting, setIsSegmenting] = useState(false);
   const [codeTarget, setCodeTarget] = useState('compose');
+  const [isPlayingGhost, setIsPlayingGhost] = useState(false);
+  const ghostVideoRef = useRef(null);
+  const ghostBoxRef = useRef(null);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -80,12 +83,12 @@ function App() {
 
     // Draw auto-segment proposals
     autoProposals.forEach((proposal, index) => {
-      ctx.strokeStyle = selectedProposal === index ? '#10b981' : '#f59e0b';
+      ctx.strokeStyle = selectedProposal === index ? '#10b981' : 'rgba(99, 102, 241, 0.4)';
       ctx.lineWidth = 2;
       ctx.strokeRect(proposal.x, proposal.y, proposal.w, proposal.h);
 
       // Draw index number
-      ctx.fillStyle = selectedProposal === index ? '#10b981' : '#f59e0b';
+      ctx.fillStyle = selectedProposal === index ? '#10b981' : 'rgba(99, 102, 241, 0.8)';
       ctx.font = '14px SF Mono, Monaco, monospace';
       ctx.fillText(`${index + 1}`, proposal.x + 5, proposal.y + 20);
     });
@@ -228,6 +231,17 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectionMode, mode, autoProposals]);
+
+  // Handle window resize for canvas coordinate scaling
+  useEffect(() => {
+    const handleResize = () => {
+      if (videoUrl) {
+        drawCanvas();
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [videoUrl, roi, isSelecting, selectionStart, autoProposals, selectedProposal]);
 
   const handleAnalyze = async () => {
     if (!videoFile) {
@@ -734,6 +748,94 @@ function App() {
                     </p>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Ghost-Diff Sandbox */}
+            {!result.total_elements && (
+              <div className="rounded-2xl bg-gray-900/50 backdrop-blur-sm border border-gray-800 p-8">
+                <h2 className="text-2xl font-bold mb-6 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                  </div>
+                  Ghost-Diff Sandbox
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Left: Video Playback */}
+                  <div>
+                    <p className="text-gray-400 text-sm mb-3">Original Video (ROI)</p>
+                    <div className="relative bg-gray-800 rounded-xl overflow-hidden aspect-video">
+                      <video
+                        ref={videoRef}
+                        src={videoUrl}
+                        className="w-full h-full object-cover"
+                      />
+                      {/* ROI overlay */}
+                      {roi.w > 0 && roi.h > 0 && (
+                        <div
+                          className="absolute border-2 border-green-500 pointer-events-none"
+                          style={{
+                            left: `${(roi.x / (videoRef.current?.videoWidth || 1)) * 100}%`,
+                            top: `${(roi.y / (videoRef.current?.videoHeight || 1)) * 100}%`,
+                            width: `${(roi.w / (videoRef.current?.videoWidth || 1)) * 100}%`,
+                            height: `${(roi.h / (videoRef.current?.videoHeight || 1)) * 100}%`,
+                          }}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right: CSS Animation */}
+                  <div>
+                    <p className="text-gray-400 text-sm mb-3">CSS Animation (Web Animations API)</p>
+                    <div className="relative bg-gray-800 rounded-xl overflow-hidden aspect-video flex items-center justify-center">
+                      <div
+                        ref={ghostBoxRef}
+                        className="w-16 h-16 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 shadow-lg shadow-purple-500/30"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    if (videoRef.current && ghostBoxRef.current) {
+                      // Restart video
+                      videoRef.current.currentTime = 0;
+                      videoRef.current.play();
+
+                      // Calculate animation parameters
+                      const handles = result.metrics.bezier_handles || [0.25, 0.1, 0.25, 1.0];
+                      const duration = result.duration_ms;
+                      const dominantAxis = result.dominant_axis;
+
+                      // Animate using Web Animations API
+                      const keyframes = dominantAxis === 'TranslationX'
+                        ? [{ transform: 'translateX(0)' }, { transform: `translateX(200px)` }]
+                        : [{ transform: 'translateY(0)' }, { transform: `translateY(200px)` }];
+
+                      const timing = {
+                        duration: duration,
+                        easing: `cubic-bezier(${handles[0]}, ${handles[1]}, ${handles[2]}, ${handles[3]})`,
+                      };
+
+                      ghostBoxRef.current.animate(keyframes, timing).play();
+                      setIsPlayingGhost(true);
+
+                      // Stop when video ends
+                      videoRef.current.onended = () => {
+                        setIsPlayingGhost(false);
+                      };
+                    }
+                  }}
+                  disabled={isPlayingGhost}
+                  className="mt-4 px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:from-gray-700 disabled:to-gray-700 rounded-xl font-medium transition-all duration-300 shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 disabled:shadow-none"
+                >
+                  {isPlayingGhost ? 'Playing...' : 'Run Synchronized Playback'}
+                </button>
               </div>
             )}
 
