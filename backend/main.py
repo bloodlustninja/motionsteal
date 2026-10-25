@@ -647,7 +647,7 @@ Your Task:
 """
 
         response = client.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model="gemini-2.0-flash",
             contents=[
                 prompt,
                 types.Part.from_bytes(data=start_crop_bytes, mime_type="image/png"),
