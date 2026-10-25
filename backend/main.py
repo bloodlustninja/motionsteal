@@ -298,6 +298,10 @@ def process_translate_mode(video_path, roi, fps_override):
         if not ret:
             raise HTTPException(status_code=400, detail="Could not read first frame")
 
+        # Validate ROI
+        if not roi or not isinstance(roi, dict):
+            raise HTTPException(status_code=400, detail="Invalid ROI format")
+
         # Initialize tracker - use the available API
         tracker = cv2.TrackerCSRT_create()
         print("Using cv2.TrackerCSRT_create()")
@@ -440,6 +444,10 @@ def process_fill_progress_mode(video_path, roi, fps_override, orientation="auto"
         fps = fps_override if fps_override else cap.get(cv2.CAP_PROP_FPS)
         if fps <= 0:
             fps = 30.0
+
+        # Validate ROI
+        if not roi or not isinstance(roi, dict):
+            raise HTTPException(status_code=400, detail="Invalid ROI format")
 
         telemetry = []
         frame_count = 0
@@ -970,8 +978,14 @@ async def analyze_motion(
         # Parse multiple ROIs if provided
         rois_data = None
         if rois:
-            rois_data = json.loads(rois)
-            print(f"Multiple ROIs: {len(rois_data)} elements")
+            try:
+                rois_data = json.loads(rois)
+                if not isinstance(rois_data, list):
+                    rois_data = [rois_data]
+                print(f"Multiple ROIs: {len(rois_data)} elements")
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse ROIs JSON: {e}")
+                rois_data = None
 
         # Validate mode
         if mode not in ["translate", "fill_progress", "multi_element"]:
@@ -1001,7 +1015,7 @@ async def analyze_motion(
                 result = process_fill_progress_mode(temp_file_path, roi_data, fps_override, orientation)
             elif mode == "multi_element":
                 print("Starting multi-element mode processing...")
-                if not rois_data or len(rois_data) == 0:
+                if not rois_data or not isinstance(rois_data, list) or len(rois_data) == 0:
                     raise HTTPException(status_code=400, detail="Multi-element mode requires at least one ROI")
                 result = process_multi_element_mode(temp_file_path, rois_data, fps_override)
 
