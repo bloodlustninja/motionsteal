@@ -13,7 +13,6 @@ import math
 import base64
 from google import genai
 from google.genai import types
-import asyncio
 
 app = FastAPI(title="MotionSteal API")
 
