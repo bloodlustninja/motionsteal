@@ -11,7 +11,6 @@ import tempfile
 import os
 import math
 import base64
-import numpy as np
 from google import genai
 from google.genai import types
 
