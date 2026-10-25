@@ -8,7 +8,7 @@ import os
 import shutil
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from synthesis.direct_synthesizer import synthesize_from_video, synthesize_multi_framework
+from direct_synthesizer import synthesize_from_video, synthesize_multi_framework
 
 app = FastAPI(title="MotionForge Direct API")
 

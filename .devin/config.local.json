@@ -10,7 +10,8 @@
       "Exec(git commit)",
       "Exec(rm)",
       "Exec(rmdir analyzer)",
-      "Exec(rmdir)"
+      "Exec(rmdir)",
+      "Exec(mv)"
     ]
   }
 }
