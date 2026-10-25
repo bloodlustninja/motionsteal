@@ -308,6 +308,9 @@ function App() {
       });
       setAutoProposals(response.data.proposals);
       setSelectionMode(true);
+      if (response.data.message && response.data.total_detected === 0) {
+        setError(response.data.message);
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'Auto-segmentation failed');
     } finally {
@@ -392,7 +395,7 @@ function App() {
                 </svg>
                 <span>
                   {autoProposals.length > 0
-                    ? `Found ${autoProposals.length} elements - Click a number to select`
+                    ? `Found ${autoProposals.length} UI elements - Click a number or box to select`
                     : mode === 'multi_element'
                     ? selectionMode
                       ? `Selection mode active - draw ${rois.length + 1}th element (ESC to finish)`

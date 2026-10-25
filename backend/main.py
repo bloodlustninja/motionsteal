@@ -751,6 +751,10 @@ async def auto_segment(
 
             cap.release()
 
+            # Check if frame is valid
+            if frame is None or frame.size == 0:
+                raise HTTPException(status_code=400, detail="Invalid frame from video")
+
             # Convert to grayscale
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
@@ -760,14 +764,40 @@ async def auto_segment(
             # Canny edge detection
             edges = cv2.Canny(blurred, 30, 100)
 
+            # Check if edges are empty
+            if edges is None or edges.size == 0 or np.count_nonzero(edges) == 0:
+                print("No edges detected, using adaptive thresholding fallback")
+                # Fallback: use adaptive thresholding
+                edges = cv2.adaptiveThreshold(
+                    gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                    cv2.THRESH_BINARY, 11, 2
+                )
+
             # Dilate to bridge borders
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
             dilated = cv2.dilate(edges, kernel, iterations=1)
 
-            # Find contours
-            contours, hierarchy = cv2.findContours(
-                dilated, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
-            )
+            # Find contours with error handling
+            try:
+                contours, hierarchy = cv2.findContours(
+                    dilated, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+                )
+            except cv2.error as e:
+                print(f"Contour detection error: {e}")
+                # Fallback: use RETR_EXTERNAL
+                contours, hierarchy = cv2.findContours(
+                    dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                )
+
+            # Check if contours were found
+            if contours is None or len(contours) == 0:
+                print("No contours found, returning empty proposals")
+                return {
+                    "status": "success",
+                    "proposals": [],
+                    "total_detected": 0,
+                    "message": "No UI elements detected. Try manual selection."
+                }
 
             # Filter contours
             frame_area = frame.shape[0] * frame.shape[1]
@@ -811,7 +841,8 @@ async def auto_segment(
             return {
                 "status": "success",
                 "proposals": output_proposals,
-                "total_detected": len(proposals)
+                "total_detected": len(proposals),
+                "message": f"Detected {len(proposals)} UI elements."
             }
 
         finally:
