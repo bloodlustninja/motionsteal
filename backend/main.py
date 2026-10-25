@@ -11,8 +11,14 @@ import tempfile
 import os
 import math
 import base64
+import numpy as np
 from google import genai
 from google.genai import types
+
+# Import new analyzer modules
+from analyzer.point_cluster_tracker import extract_point_cluster_trajectory
+from analyzer.keyframe_diff import extract_keyframe_diff
+from analyzer.spring_quantizer import quantize_spring
 
 app = FastAPI(title="MotionSteal API")
 
@@ -1363,6 +1369,142 @@ async def analyze_fluid(
 
     except Exception as e:
         print(f"Fluid analysis error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/analyze-fluid-advanced")
+async def analyze_fluid_advanced(
+    video: UploadFile = File(...),
+    roi: str = Form(...),
+    ai_api_key: Optional[str] = Form(None),
+    fps_override: Optional[float] = Form(None),
+):
+    """
+    Analyze fluid UI interactions using point-cluster tracking and semantic diffing.
+    Uses the new architectural pivot for non-rigid morphing support.
+    """
+    try:
+        # Parse ROI
+        roi_data = json.loads(roi)
+
+        # Save uploaded video to temp file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        content = await video.read()
+        temp_file.write(content)
+        temp_file.close()
+        temp_file_path = temp_file.name
+
+        try:
+            # Step 1: Point-Cluster Tracking (replaces CSRT)
+            print("Starting point-cluster tracking...")
+            trajectory = extract_point_cluster_trajectory(temp_file_path, roi_data, fps_override)
+            print(f"Extracted {len(trajectory)} trajectory points")
+
+            if len(trajectory) < 5:
+                raise HTTPException(status_code=400, detail="Insufficient trajectory data")
+
+            # Step 2: Keyframe Extraction & Semantic Diffing
+            print("Extracting keyframes and diffing states...")
+            keyframe_data = extract_keyframe_diff(temp_file_path, trajectory, ai_api_key)
+            print(f"Keyframes: {keyframe_data['keyframes']}")
+            print(f"State machine: {keyframe_data['state_machine']}")
+
+            # Step 3: Physics Quantization
+            # Extract velocity and calculate spring parameters
+            trans_velocities = np.array([frame["trans_velocity"] for frame in trajectory])
+            morph_velocities = np.array([frame["morph_velocity"] for frame in trajectory])
+
+            # Estimate natural frequency from peak velocity
+            peak_velocity = np.max(trans_velocities)
+            omega_estimate = peak_velocity * 5.0  # Heuristic
+            zeta_estimate = 0.75  # Default to fluid
+
+            # Quantize to design system preset
+            quantized = quantize_spring(zeta_estimate, omega_estimate)
+            print(f"Quantized spring: {quantized['preset_name']}")
+
+            # Step 4: Generate code with state machine
+            from synthesis.compilers.compose_compiler import generate_compose_component
+            from synthesis.compilers.framer_compiler import FramerCompiler
+            from synthesis.compilers.flutter_compiler import FlutterCompiler
+
+            # Build phase data from keyframes
+            phases = [
+                {
+                    "name": "COLLAPSED",
+                    "start_t": keyframe_data["keyframes"]["start_t"],
+                    "end_t": keyframe_data["keyframes"]["inflect_t"],
+                    "type": "translation"
+                },
+                {
+                    "name": "EXPANDED",
+                    "start_t": keyframe_data["keyframes"]["inflect_t"],
+                    "end_t": keyframe_data["keyframes"]["settle_t"],
+                    "type": "expansion"
+                }
+            ]
+
+            # Fit type from quantized preset
+            fit_type = "spring" if quantized["damping_ratio"] < 0.9 else "tween"
+            metrics = {
+                "damping_ratio": quantized["damping_ratio"],
+                "stiffness": quantized["stiffness"],
+                "omega": quantized["omega"],
+                "spring_preset": quantized["preset_name"]
+            }
+
+            # Generate code
+            compose_code = generate_compose_component(
+                phases,
+                fit_type,
+                metrics,
+                keyframe_data["state_machine"]
+            )
+
+            framer_compiler = FramerCompiler()
+            framer_code = framer_compiler.compile_animation(
+                phases,
+                fit_type,
+                metrics,
+                keyframe_data["state_machine"]
+            )
+
+            flutter_compiler = FlutterCompiler()
+            flutter_code = flutter_compiler.compile_animation(
+                phases,
+                fit_type,
+                metrics,
+                keyframe_data["state_machine"]
+            )
+
+            return {
+                "status": "success",
+                "trajectory": trajectory,
+                "keyframes": keyframe_data["keyframes"],
+                "state_machine": keyframe_data["state_machine"],
+                "spring_preset": quantized,
+                "phases": phases,
+                "fit_type": fit_type,
+                "metrics": metrics,
+                "code": {
+                    "compose": compose_code,
+                    "framer": framer_code,
+                    "flutter": flutter_code
+                }
+            }
+
+        finally:
+            import time
+            time.sleep(0.1)
+            try:
+                os.unlink(temp_file_path)
+            except:
+                pass
+
+    except Exception as e:
+        print(f"Fluid advanced analysis error: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
