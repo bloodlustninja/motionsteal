@@ -21,7 +21,8 @@ app.add_middleware(
 )
 
 UPLOAD_DIR = "temp_uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
 
 
 @app.post("/api/synthesize")
