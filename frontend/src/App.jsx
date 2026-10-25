@@ -22,6 +22,9 @@ function App() {
   const [googleApiKey, setGoogleApiKey] = useState('');
   const [visionResult, setVisionResult] = useState(null);
   const [isSynthesizing, setIsSynthesizing] = useState(false);
+  const [autoProposals, setAutoProposals] = useState([]);
+  const [selectedProposal, setSelectedProposal] = useState(null);
+  const [isSegmenting, setIsSegmenting] = useState(false);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -31,7 +34,7 @@ function App() {
     if (videoUrl) {
       drawCanvas();
     }
-  }, [videoUrl, roi, isSelecting, selectionStart]);
+  }, [videoUrl, roi, isSelecting, selectionStart, autoProposals, selectedProposal]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -73,6 +76,18 @@ function App() {
     canvas.height = video.videoHeight || 480;
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Draw auto-segment proposals
+    autoProposals.forEach((proposal, index) => {
+      ctx.strokeStyle = selectedProposal === index ? '#10b981' : '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(proposal.x, proposal.y, proposal.w, proposal.h);
+
+      // Draw index number
+      ctx.fillStyle = selectedProposal === index ? '#10b981' : '#f59e0b';
+      ctx.font = '14px SF Mono, Monaco, monospace';
+      ctx.fillText(`${index + 1}`, proposal.x + 5, proposal.y + 20);
+    });
 
     // Draw ROI selection
     if (roi.w > 0 && roi.h > 0) {
@@ -170,16 +185,48 @@ function App() {
     setIsSelecting(false);
   };
 
+  const handleCanvasClick = (e) => {
+    if (autoProposals.length === 0) return;
+
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    const clickX = (e.clientX - rect.left) * scaleX;
+    const clickY = (e.clientY - rect.top) * scaleY;
+
+    // Check if click is inside any proposal
+    for (let i = 0; i < autoProposals.length; i++) {
+      const p = autoProposals[i];
+      if (clickX >= p.x && clickX <= p.x + p.w &&
+          clickY >= p.y && clickY <= p.y + p.h) {
+        handleSelectProposal(i);
+        return;
+      }
+    }
+  };
+
   const handleKeyDown = (e) => {
-    if (e.key === 'Escape' && mode === 'multi_element' && selectionMode) {
+    if (e.key === 'Escape') {
       setSelectionMode(false);
+      setAutoProposals([]);
+      setSelectedProposal(null);
+    }
+
+    // Number keys to select proposals
+    if (autoProposals.length > 0 && e.key >= '1' && e.key <= '9') {
+      const index = parseInt(e.key) - 1;
+      if (index < autoProposals.length) {
+        handleSelectProposal(index);
+      }
     }
   };
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectionMode, mode]);
+  }, [selectionMode, mode, autoProposals]);
 
   const handleAnalyze = async () => {
     if (!videoFile) {
@@ -222,6 +269,43 @@ function App() {
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  const handleAutoSegment = async () => {
+    if (!videoFile) {
+      setError('Please upload a video first');
+      return;
+    }
+
+    setIsSegmenting(true);
+    setError(null);
+    setAutoProposals([]);
+    setSelectedProposal(null);
+
+    const formData = new FormData();
+    formData.append('video', videoFile);
+
+    try {
+      const response = await axios.post(`${API_URL}/api/auto-segment`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      setAutoProposals(response.data.proposals);
+      setSelectionMode(true);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Auto-segmentation failed');
+    } finally {
+      setIsSegmenting(false);
+    }
+  };
+
+  const handleSelectProposal = (index) => {
+    const proposal = autoProposals[index];
+    setRoi(proposal);
+    setSelectedProposal(index);
+    setSelectionMode(false);
+    setAutoProposals([]);
   };
 
   const copyToClipboard = (text) => {
@@ -292,7 +376,9 @@ function App() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12 a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>
-                  {mode === 'multi_element'
+                  {autoProposals.length > 0
+                    ? `Found ${autoProposals.length} elements - Click a number to select`
+                    : mode === 'multi_element'
                     ? selectionMode
                       ? `Selection mode active - draw ${rois.length + 1}th element (ESC to finish)`
                       : `Selected ${rois.length} elements - Click to add more`
@@ -301,38 +387,65 @@ function App() {
                     : 'Toggle selection mode to draw ROI'}
                 </span>
               </div>
-              <button
-                onClick={() => {
-                  setSelectionMode(!selectionMode);
-                  if (!selectionMode) {
-                    // When enabling selection, pause the video
-                    if (videoRef.current) {
-                      videoRef.current.pause();
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleAutoSegment}
+                  disabled={isSegmenting || !videoFile}
+                  className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 bg-amber-600 hover:bg-amber-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white"
+                >
+                  {isSegmenting ? (
+                    <>
+                      <svg className="animate-spin w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Detecting...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                      Auto-Detect
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectionMode(!selectionMode);
+                    setAutoProposals([]);
+                    setSelectedProposal(null);
+                    if (!selectionMode) {
+                      // When enabling selection, pause the video
+                      if (videoRef.current) {
+                        videoRef.current.pause();
+                      }
                     }
-                  }
-                }}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 ${
-                  selectionMode
-                    ? 'bg-purple-600 hover:bg-purple-500 text-white'
-                    : 'bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700'
-                }`}
-              >
-                {selectionMode ? (
-                  <>
-                    <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                    Exit Selection
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-                    </svg>
-                    Select Region
-                  </>
-                )}
-              </button>
+                  }}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 ${
+                    selectionMode
+                      ? 'bg-purple-600 hover:bg-purple-500 text-white'
+                      : 'bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700'
+                  }`}
+                >
+                  {selectionMode ? (
+                    <>
+                      <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      Exit Selection
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+                      </svg>
+                      Manual Select
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
             <div className="relative rounded-2xl overflow-hidden bg-gray-900/50 backdrop-blur-sm border border-gray-800 shadow-2xl">
               <video
@@ -350,6 +463,7 @@ function App() {
                   onMouseMove={handleCanvasMouseMove}
                   onMouseUp={handleCanvasMouseUp}
                   onMouseLeave={() => isSelecting && setIsSelecting(false)}
+                  onClick={handleCanvasClick}
                   className="absolute top-0 left-0 w-full h-full cursor-crosshair"
                 />
               )}

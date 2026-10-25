@@ -613,6 +613,112 @@ fun StaggeredAnimation() {
     return code
 
 
+@app.post("/api/auto-segment")
+async def auto_segment(
+    video: UploadFile = File(...),
+):
+    """Automatically detect UI elements using Canny edge detection and contour analysis"""
+    try:
+        # Save uploaded video to temp file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        content = await video.read()
+        temp_file.write(content)
+        temp_file.close()
+        temp_file_path = temp_file.name
+        print(f"Saved video to: {temp_file_path}")
+
+        try:
+            # Open video and read first frame
+            cap = cv2.VideoCapture(temp_file_path)
+            if not cap.isOpened():
+                raise HTTPException(status_code=400, detail="Could not open video file")
+
+            ret, frame = cap.read()
+            if not ret:
+                raise HTTPException(status_code=400, detail="Could not read first frame")
+
+            cap.release()
+
+            # Convert to grayscale
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            # Apply Gaussian blur to reduce noise
+            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+            # Canny edge detection
+            edges = cv2.Canny(blurred, 30, 100)
+
+            # Dilate to bridge borders
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+            dilated = cv2.dilate(edges, kernel, iterations=1)
+
+            # Find contours
+            contours, hierarchy = cv2.findContours(
+                dilated, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+            )
+
+            # Filter contours
+            frame_area = frame.shape[0] * frame.shape[1]
+            proposals = []
+
+            for contour in contours:
+                # Get bounding rect
+                x, y, w, h = cv2.boundingRect(contour)
+                area = w * h
+
+                # Filter by area
+                if area < 0.002 * frame_area:  # Less than 0.2% of frame area
+                    continue
+                if area > 0.85 * frame_area:  # More than 85% of frame area
+                    continue
+
+                # Filter by size
+                if w < 20 or h < 20:
+                    continue
+
+                proposals.append({
+                    "x": int(x),
+                    "y": int(y),
+                    "w": int(w),
+                    "h": int(h),
+                    "area": int(area)
+                })
+
+            # Sort by area descending and take top 15
+            proposals.sort(key=lambda p: p["area"], reverse=True)
+            proposals = proposals[:15]
+
+            # Remove area from output
+            output_proposals = [
+                {"x": p["x"], "y": p["y"], "w": p["w"], "h": p["h"]}
+                for p in proposals
+            ]
+
+            print(f"Found {len(proposals)} UI element proposals")
+
+            return {
+                "status": "success",
+                "proposals": output_proposals,
+                "total_detected": len(proposals)
+            }
+
+        finally:
+            # Clean up temp file
+            import time
+            time.sleep(0.1)
+            try:
+                os.unlink(temp_file_path)
+                print(f"Deleted temp file: {temp_file_path}")
+            except Exception as e:
+                print(f"Could not delete temp file: {e}")
+
+    except Exception as e:
+        print(f"Auto-segmentation error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def synthesize_styled_ui_with_gemini(start_crop_bytes, end_crop_bytes, duration_ms, max_rotation, api_key=None):
     """Use Gemini AI to generate fully styled Jetpack Compose code from visual crops"""
     if not api_key:
