@@ -354,9 +354,15 @@ function App() {
               MotionSteal
             </h1>
           </div>
-          <p className="text-gray-400 text-lg max-w-2xl mx-auto">
+          <p className="text-gray-400 text-lg max-w-2xl mx-auto mb-4">
             Extract animation physics from screen recordings and generate production-ready Jetpack Compose code
           </p>
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 max-w-2xl mx-auto">
+            <p className="text-amber-400 text-sm">
+              <strong>⚠️ Works best for:</strong> Rigid object translations, simple shape changes, and motion scaling. 
+              May struggle with object splitting (sphere → multiple spheres) or non-rigid deformations (sphere → bar).
+            </p>
+          </div>
         </div>
 
         {/* Upload Section */}
