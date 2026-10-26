@@ -11,7 +11,10 @@
       "Exec(rm)",
       "Exec(rmdir analyzer)",
       "Exec(rmdir)",
-      "Exec(mv)"
+      "Exec(mv)",
+      "Exec(venv/Scripts/python.exe)",
+      "Exec(npm run)",
+      "Exec(curl)"
     ]
   }
 }
